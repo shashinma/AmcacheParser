@@ -270,6 +270,11 @@ bool HiveParser::ParseKeyNode(uint32_t offset, HiveKey& key) {
         return false;
     }
 
+    // Skip deleted keys unless recover deleted is enabled
+    if ((node.flags & 0x01) != 0 && !recoverDeleted_) {
+        return false;
+    }
+
     key.name_ = ReadString(offset + 4 + sizeof(KeyNode), node.keyNameLen, (node.flags & 0x20) != 0);
     key.lastWriteTime_ = FileTimeToTimePoint(node.lastWriteTime);
     key.valid_ = true;
@@ -498,6 +503,63 @@ HiveKey* HiveParser::GetKeyByPath(const std::string& path) {
     }
 
     return current;
+}
+
+bool HiveParser::ReplayTransactionLogs(const std::vector<std::vector<uint8_t>>& logBuffers) {
+    if (!isOpen_ || data_.empty()) {
+        return false;
+    }
+
+    bool anyReplayed = false;
+
+    for (const auto& logData : logBuffers) {
+        if (logData.size() < sizeof(HiveBaseBlock)) {
+            continue;
+        }
+
+        // Scan for HBIN blocks in the log and overlay onto main hive
+        for (size_t pos = sizeof(HiveBaseBlock); pos + sizeof(HiveBinHeader) <= logData.size(); ) {
+            uint32_t sig;
+            std::memcpy(&sig, logData.data() + pos, sizeof(sig));
+
+            if (sig != 0x6E696268) { // "hbin"
+                ++pos;
+                continue;
+            }
+
+            HiveBinHeader header;
+            std::memcpy(&header, logData.data() + pos, sizeof(header));
+
+            if (header.size == 0 || header.size > 0x10000000) {
+                ++pos;
+                continue;
+            }
+
+            size_t hivePos = hiveBinsOffset_ + header.offset;
+            if (hivePos + header.size <= data_.size() && pos + header.size <= logData.size()) {
+                std::memcpy(data_.data() + hivePos, logData.data() + pos, header.size);
+                anyReplayed = true;
+            }
+
+            pos += header.size;
+        }
+    }
+
+    if (anyReplayed) {
+        // Re-parse after overlaying log data
+        HiveKey oldRoot = std::move(rootKey_);
+        rootKey_ = HiveKey();
+        isOpen_ = false;
+        if (!ParseHive()) {
+            rootKey_ = std::move(oldRoot);
+            isOpen_ = true;
+            return false;
+        }
+        // Mark as clean after successful replay
+        isDirty_ = false;
+    }
+
+    return anyReplayed;
 }
 
 bool HiveParser::KeyExists(const std::string& path) {

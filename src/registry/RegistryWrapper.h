@@ -184,6 +184,14 @@ public:
         return parser_->IsDirty();
     }
 
+    void SetRecoverDeleted(bool value) {
+        parser_->SetRecoverDeleted(value);
+    }
+
+    bool ReplayTransactionLogs(const std::vector<std::vector<uint8_t>>& logBuffers) {
+        return parser_->ReplayTransactionLogs(logBuffers);
+    }
+
     uint32_t GetPrimarySequence() const { return parser_->GetPrimarySequence(); }
     uint32_t GetSecondarySequence() const { return parser_->GetSecondarySequence(); }
 

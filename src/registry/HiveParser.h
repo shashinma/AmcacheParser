@@ -173,6 +173,7 @@ public:
     bool Open(const std::string& path);
     bool OpenFromBuffer(const std::vector<uint8_t>& buffer);
     void Close();
+    void SetRecoverDeleted(bool value) { recoverDeleted_ = value; }
 
     bool IsOpen() const { return isOpen_; }
     HiveKey* GetRootKey() { return &rootKey_; }
@@ -182,6 +183,7 @@ public:
 
     uint32_t GetPrimarySequence() const { return primarySequence_; }
     uint32_t GetSecondarySequence() const { return secondarySequence_; }
+    bool ReplayTransactionLogs(const std::vector<std::vector<uint8_t>>& logBuffers);
 
 private:
     bool ParseHive();
@@ -204,6 +206,7 @@ private:
     uint32_t primarySequence_ = 0;
     uint32_t secondarySequence_ = 0;
     uint32_t hiveBinsOffset_ = 4096;
+    bool recoverDeleted_ = true;
 };
 
 } // namespace amcache
