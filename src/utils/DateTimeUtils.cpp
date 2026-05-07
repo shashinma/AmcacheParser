@@ -80,11 +80,17 @@ DateTimeUtils::OptionalTimestamp DateTimeUtils::ParseDateTime(const std::string&
 }
 
 std::string DateTimeUtils::Format(const Timestamp& ts, const std::string& format) {
+    auto time_t_val = std::chrono::system_clock::to_time_t(ts);
+
+    // Handle .NET DateTimeOffset.MinValue (0001-01-01 00:00:00)
+    if (time_t_val == MIN_VALUE_SECONDS) {
+        return "0001-01-01 00:00:00";
+    }
+
     if (!IsValid(ts)) {
         return "";
     }
 
-    auto time_t_val = std::chrono::system_clock::to_time_t(ts);
     std::tm tm = {};
 
 #ifdef _WIN32
@@ -106,11 +112,17 @@ std::string DateTimeUtils::Format(const OptionalTimestamp& ts, const std::string
 }
 
 std::string DateTimeUtils::FormatMicroseconds(const Timestamp& ts) {
+    auto time_t_val = std::chrono::system_clock::to_time_t(ts);
+
+    // Handle .NET DateTimeOffset.MinValue (0001-01-01 00:00:00.0000000)
+    if (time_t_val == MIN_VALUE_SECONDS) {
+        return "0001-01-01 00:00:00.0000000";
+    }
+
     if (!IsValid(ts)) {
         return "";
     }
 
-    auto time_t_val = std::chrono::system_clock::to_time_t(ts);
     std::tm tm = {};
 
 #ifdef _WIN32
@@ -142,6 +154,10 @@ bool DateTimeUtils::IsValid(const Timestamp& ts) {
         return false;
     }
     auto time_t_val = std::chrono::system_clock::to_time_t(ts);
+    // Allow .NET DateTimeOffset.MinValue (0001-01-01)
+    if (time_t_val == MIN_VALUE_SECONDS) {
+        return true;
+    }
     if (time_t_val <= 0) {
         return false;
     }
@@ -157,6 +173,10 @@ bool DateTimeUtils::IsValid(const OptionalTimestamp& ts) {
         return false;
     }
     return IsValid(*ts);
+}
+
+DateTimeUtils::Timestamp DateTimeUtils::MinValue() {
+    return Timestamp(std::chrono::seconds(MIN_VALUE_SECONDS));
 }
 
 } // namespace amcache

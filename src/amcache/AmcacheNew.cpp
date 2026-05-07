@@ -180,7 +180,12 @@ FileEntryNew AmcacheNew::ParseFileEntry(const RegistryKey& key) {
     if (auto val = key.GetUInt64Value("Usn")) entry.Usn = *val;
 
     if (auto val = key.GetStringValue("LinkDate")) {
-        entry.LinkDate = DateTimeUtils::ParseDateTime(*val);
+        auto parsed = DateTimeUtils::ParseDateTime(*val);
+        if (!parsed.has_value()) {
+            entry.LinkDate = DateTimeUtils::MinValue();
+        } else {
+            entry.LinkDate = *parsed;
+        }
     }
 
     return entry;

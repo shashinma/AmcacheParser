@@ -23,10 +23,12 @@ public:
     static Timestamp Now();
     static bool IsValid(const Timestamp& ts);
     static bool IsValid(const OptionalTimestamp& ts);
+    static Timestamp MinValue();
 
 private:
     static constexpr uint64_t FILETIME_UNIX_DIFF = 116444736000000000ULL;
     static constexpr uint64_t MIN_VALID_FILETIME = FILETIME_UNIX_DIFF;
+    static constexpr int64_t MIN_VALUE_SECONDS = -62135596800LL;
 };
 
 } // namespace amcache
