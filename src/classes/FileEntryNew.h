@@ -46,7 +46,11 @@ struct FileEntryNew {
     static std::string ExtractFileExtension(const std::string& path) {
         auto pos = path.rfind('.');
         if (pos != std::string::npos && pos < path.length() - 1) {
-            return path.substr(pos);
+            // Make sure the dot is part of the filename, not a directory path
+            auto lastSep = path.find_last_of("/\\");
+            if (lastSep == std::string::npos || pos > lastSep) {
+                return path.substr(pos);
+            }
         }
         return "";
     }

@@ -30,9 +30,17 @@ static std::string GetVersionString() {
            "https://github.com/Artifactum";
 }
 
+static std::string GetFooter() {
+    return "Examples: AmcacheParser.exe -f \"C:\\Temp\\amcache\\AmcacheWin10.hve\" --csv C:\\temp\n"
+           "\t AmcacheParser.exe -f \"C:\\Temp\\amcache\\AmcacheWin10.hve\" -i --csv C:\\temp --csvf foo.csv\n"
+           "\t AmcacheParser.exe -f \"C:\\Temp\\amcache\\AmcacheWin10.hve\" -w \"c:\\temp\\whitelist.txt\" --csv C:\\temp\n\n"
+           "Short options (single letter) are prefixed with a single dash. Long commands are prefixed with two dashes";
+}
+
 int main(int argc, char** argv) {
-    CLI::App app{"AmcacheParser - Windows Amcache.hve parser"};
+    CLI::App app{GetVersionString()};
     app.set_version_flag("-v,--version", GetVersionString());
+    app.footer(GetFooter());
 
     std::string filePath;
     std::string csvDir;
@@ -158,127 +166,140 @@ int main(int argc, char** argv) {
     auto startTime = std::chrono::steady_clock::now();
     std::string ts = amcache::Helper::GetTimestampString();
 
-    // Load whitelist/blacklist
-    std::set<std::string> whitelist;
-    std::set<std::string> blacklist;
-    bool useBlacklist = false;
-
-    if (!blacklistPath.empty()) {
-        if (fs::exists(blacklistPath)) {
-            blacklist = amcache::Helper::LoadHashList(blacklistPath);
-            useBlacklist = true;
-        } else {
-            spdlog::warn("{} does not exist", blacklistPath);
-        }
-    } else if (!whitelistPath.empty()) {
-        if (fs::exists(whitelistPath)) {
-            whitelist = amcache::Helper::LoadHashList(whitelistPath);
-        } else {
-            spdlog::warn("{} does not exist", whitelistPath);
-        }
+    // Resolve full path
+    try {
+        filePath = fs::absolute(filePath).string();
+    } catch (...) {
+        // keep original
     }
 
-    // Create output directory
-    if (!fs::exists(csvDir)) {
-        try {
-            fs::create_directories(csvDir);
-        } catch (const std::exception& e) {
-            spdlog::error("There was an error creating directory {}. Error: {} Exiting", csvDir, e.what());
-            return 1;
-        }
-    }
+    try {
+        // Load whitelist/blacklist
+        std::set<std::string> whitelist;
+        std::set<std::string> blacklist;
+        bool useBlacklist = false;
 
-    // Open hive (with optional VSS/raw/locked-file handling)
-    amcache::RegistryHive hive;
-    hive.SetRecoverDeleted(true);
-    bool opened = false;
-    std::vector<std::vector<uint8_t>> logBuffers;
+        if (!blacklistPath.empty()) {
+            if (fs::exists(blacklistPath)) {
+                blacklist = amcache::Helper::LoadHashList(blacklistPath);
+                useBlacklist = true;
+            } else {
+                spdlog::warn("{} does not exist", blacklistPath);
+            }
+        } else if (!whitelistPath.empty()) {
+            if (fs::exists(whitelistPath)) {
+                whitelist = amcache::Helper::LoadHashList(whitelistPath);
+            } else {
+                spdlog::warn("{} does not exist", whitelistPath);
+            }
+        }
 
-    if (vss) {
+        // Create output directory
+        if (!fs::exists(csvDir)) {
+            try {
+                fs::create_directories(csvDir);
+            } catch (const std::exception& e) {
+                spdlog::error("There was an error creating directory {}. Error: {} Exiting", csvDir, e.what());
+                return 1;
+            }
+        }
+
+        // Open hive (with optional VSS/raw/locked-file handling)
+        amcache::RegistryHive hive;
+        hive.SetRecoverDeleted(true);
+        bool opened = false;
+        std::vector<std::vector<uint8_t>> logBuffers;
+
+        if (vss) {
 #ifdef _WIN32
-        spdlog::info("Reading '{}' via Volume Shadow Copy...", filePath);
-        std::cout << std::endl;
-        auto data = amcache::RawCopy::ReadViaVSS(filePath);
-        if (data.has_value()) {
-            opened = hive.OpenFromBuffer(*data);
-        }
+            spdlog::info("Reading '{}' via Volume Shadow Copy...", filePath);
+            std::cout << std::endl;
+            auto data = amcache::RawCopy::ReadViaVSS(filePath);
+            if (data.has_value()) {
+                opened = hive.OpenFromBuffer(*data);
+            }
 #endif
-    } else if (raw) {
+        } else if (raw) {
 #ifdef _WIN32
-        spdlog::info("Reading '{}' via raw volume access...", filePath);
-        std::cout << std::endl;
-        auto data = amcache::RawCopy::ReadViaNTFS(filePath);
-        if (!data.has_value()) {
-            data = amcache::RawCopy::ReadWithBackupPrivileges(filePath);
-        }
-        if (data.has_value()) {
-            opened = hive.OpenFromBuffer(*data);
-        }
+            spdlog::info("Reading '{}' via raw volume access...", filePath);
+            std::cout << std::endl;
+            auto data = amcache::RawCopy::ReadViaNTFS(filePath);
+            if (!data.has_value()) {
+                data = amcache::RawCopy::ReadWithBackupPrivileges(filePath);
+            }
+            if (data.has_value()) {
+                opened = hive.OpenFromBuffer(*data);
+            }
 #endif
-    } else {
-        try {
-            opened = hive.Open(filePath);
-        } catch (...) {
-            opened = false;
+        } else {
+            try {
+                opened = hive.Open(filePath);
+            } catch (...) {
+                opened = false;
+            }
+
+            if (!opened) {
+                spdlog::info("'{}' is in use. Rerouting...", filePath);
+                std::cout << std::endl;
+
+                auto data = amcache::RawCopy::ReadLockedFileWithLogs(filePath);
+                if (data.has_value()) {
+                    opened = hive.OpenFromBuffer(data->hiveData);
+                    logBuffers = std::move(data->logData);
+                }
+            }
         }
 
         if (!opened) {
-            spdlog::info("'{}' is in use. Rerouting...", filePath);
-            std::cout << std::endl;
-
-            auto data = amcache::RawCopy::ReadLockedFileWithLogs(filePath);
-            if (data.has_value()) {
-                opened = hive.OpenFromBuffer(data->hiveData);
-                logBuffers = std::move(data->logData);
-            }
+            spdlog::error("{} not found or could not be accessed. Exiting", filePath);
+            return 1;
         }
-    }
 
-    if (!opened) {
-        spdlog::error("{} not found or could not be accessed. Exiting", filePath);
-        return 1;
-    }
-
-    // Check for dirty hive and replay transaction logs
-    if (hive.IsDirty()) {
-        if (!noLogs) {
-            // If we didn't get logs from locked-file reading, try reading them normally
-            if (logBuffers.empty()) {
-                auto logFiles = amcache::Helper::FindTransactionLogs(filePath);
-                for (const auto& logPath : logFiles) {
-                    std::ifstream file(logPath, std::ios::binary | std::ios::ate);
-                    if (file.is_open()) {
-                        std::streamsize size = file.tellg();
-                        file.seekg(0, std::ios::beg);
-                        std::vector<uint8_t> buffer(static_cast<size_t>(size));
-                        if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
-                            logBuffers.push_back(std::move(buffer));
+        // Check for dirty hive and replay transaction logs
+        if (hive.IsDirty()) {
+            if (!noLogs) {
+                // If we didn't get logs from locked-file reading, try reading them normally
+                if (logBuffers.empty()) {
+                    auto logFiles = amcache::Helper::FindTransactionLogs(filePath);
+                    for (const auto& logPath : logFiles) {
+                        std::ifstream file(logPath, std::ios::binary | std::ios::ate);
+                        if (file.is_open()) {
+                            std::streamsize size = file.tellg();
+                            file.seekg(0, std::ios::beg);
+                            std::vector<uint8_t> buffer(static_cast<size_t>(size));
+                            if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                                logBuffers.push_back(std::move(buffer));
+                            }
                         }
                     }
                 }
-            }
 
-            if (logBuffers.empty()) {
-                spdlog::warn("Registry hive is dirty and no transaction logs were found in the same directory! LOGs should have same base name as the hive. Aborting!!");
-                return 1;
-            }
+                if (logBuffers.empty()) {
+                    spdlog::warn("Registry hive is dirty and no transaction logs were found in the same directory! LOGs should have same base name as the hive. Aborting!!");
+                    std::cout << std::endl;
+                    return 1;
+                }
 
-            spdlog::info("Registry hive is dirty. Replaying transaction logs...");
-            if (hive.ReplayTransactionLogs(logBuffers)) {
-                spdlog::info("Transaction logs replayed successfully.");
+                spdlog::info("Registry hive is dirty. Replaying transaction logs...");
+                std::cout << std::endl;
+                if (hive.ReplayTransactionLogs(logBuffers)) {
+                    spdlog::info("Transaction logs replayed successfully.");
+                    std::cout << std::endl;
+                } else {
+                    spdlog::warn("Failed to replay transaction logs. Data may be incomplete.");
+                    std::cout << std::endl;
+                }
             } else {
-                spdlog::warn("Failed to replay transaction logs. Data may be incomplete.");
+                spdlog::warn("Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...");
+                std::cout << std::endl;
             }
-        } else {
-            spdlog::warn("Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...");
         }
-    }
 
-    // Detect format
-    bool isNewFormat = amcache::Helper::IsNewFormat(hive);
-    std::string hiveName = amcache::Helper::GetBaseName(filePath);
+        // Detect format
+        bool isNewFormat = amcache::Helper::IsNewFormat(hive);
+        std::string hiveName = amcache::Helper::GetBaseName(filePath);
 
-    amcache::CsvWriter csvWriter(strftimeFormat, mp);
+        amcache::CsvWriter csvWriter(strftimeFormat, mp);
 
     if (isNewFormat) {
         auto result = amcache::AmcacheNew::Parse(hive, includeLinked, whitelist, blacklist);
@@ -486,14 +507,30 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << std::endl;
-    spdlog::info("Results saved to: {}", csvDir);
-    std::cout << std::endl;
+        std::cout << std::endl;
+        spdlog::info("Results saved to: {}", csvDir);
+        std::cout << std::endl;
 
-    auto endTime = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(endTime - startTime);
-    spdlog::info("Total parsing time: {:.3f} seconds", elapsed.count());
-    std::cout << std::endl;
+        auto endTime = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(endTime - startTime);
+        spdlog::info("Total parsing time: {:.3f} seconds", elapsed.count());
+        std::cout << std::endl;
+    } catch (const std::exception& ex) {
+        std::string msg = ex.what();
+        if (msg.find("Administrator privileges not found") != std::string::npos) {
+            spdlog::error("Could not access {} because it is in use", filePath);
+            std::cout << std::endl;
+            spdlog::error("Rerun the program with Administrator privileges to try again");
+            std::cout << std::endl;
+        } else if (msg.find("Sequence numbers do not match") == std::string::npos) {
+            spdlog::error("There was an error: {}", msg);
+            std::cout << std::endl;
+            spdlog::error("Please send {} to {} in order to fix the issue", filePath, "saericzimmerman@gmail.com");
+            std::cout << std::endl;
+        }
+        return 1;
+    }
 
+    spdlog::shutdown();
     return 0;
 }

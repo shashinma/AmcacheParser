@@ -165,6 +165,11 @@ FileEntryNew AmcacheNew::ParseFileEntry(const RegistryKey& key) {
         entry.FullPath = *val;
         entry.FileExtension = FileEntryNew::ExtractFileExtension(*val);
     }
+    if (entry.FileExtension.empty()) {
+        if (auto val = key.GetStringValue("Name")) {
+            entry.FileExtension = FileEntryNew::ExtractFileExtension(*val);
+        }
+    }
     if (auto val = key.GetStringValue("Name")) entry.Name = *val;
     if (auto val = key.GetStringValue("ProductName")) entry.ProductName = *val;
     if (auto val = key.GetStringValue("ProductVersion")) entry.ProductVersion = *val;
