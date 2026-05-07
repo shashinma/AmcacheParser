@@ -121,11 +121,14 @@ std::string DateTimeUtils::FormatMicroseconds(const Timestamp& ts) {
 
     auto since_epoch = ts.time_since_epoch();
     auto secs = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
-    auto micros = std::chrono::duration_cast<std::chrono::microseconds>(since_epoch - secs);
+    // .NET uses 7 digits (ticks / 100ns). Convert nanoseconds to 100-nanosecond ticks.
+    auto nanos = std::chrono::duration_cast<std::chrono::nanoseconds>(since_epoch - secs);
+    uint64_t ticks = nanos.count() / 100; // 100-nanosecond ticks
+    if (ticks > 9999999) ticks = 9999999;
 
     std::ostringstream ss;
     ss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-    ss << "." << std::setfill('0') << std::setw(6) << micros.count();
+    ss << "." << std::setfill('0') << std::setw(7) << ticks;
     return ss.str();
 }
 

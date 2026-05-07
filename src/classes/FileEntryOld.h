@@ -45,9 +45,17 @@ struct FileEntryOld {
     FileEntryOld() = default;
 
     static void ParseMFTEntry(const std::string& keyName, int32_t& entryNumber, int32_t& sequenceNumber) {
-        if (keyName.length() >= 8) {
+        // Strip dashes and trim whitespace (matches original .NET behavior)
+        std::string cleaned;
+        for (char c : keyName) {
+            if (c != '-' && c != ' ' && c != '\t' && c != '\r' && c != '\n') {
+                cleaned += c;
+            }
+        }
+
+        if (cleaned.length() >= 8) {
             try {
-                std::string padded = keyName;
+                std::string padded = cleaned;
                 while (padded.length() < 8) {
                     padded = "0" + padded;
                 }
