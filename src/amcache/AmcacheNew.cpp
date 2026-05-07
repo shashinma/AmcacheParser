@@ -87,7 +87,6 @@ std::vector<ProgramsEntryNew> AmcacheNew::ParsePrograms(const RegistryHive& hive
 ProgramsEntryNew AmcacheNew::ParseProgramEntry(const RegistryKey& key) {
     ProgramsEntryNew entry;
 
-    entry.ProgramId = key.GetName();
     entry.KeyLastWriteTimestamp = key.GetLastWriteTime();
 
     if (auto val = key.GetStringValue("BundleManifestPath")) entry.BundleManifestPath = *val;
