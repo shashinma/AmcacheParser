@@ -44,6 +44,8 @@ int main(int argc, char** argv) {
     bool noLogs = false;
     bool debug = false;
     bool trace = false;
+    bool vss = false;
+    bool raw = false;
     bool mp = false;
 
     app.add_option("-f", filePath, "Amcache.hve file to parse")
@@ -67,6 +69,10 @@ int main(int argc, char** argv) {
     app.add_flag("--mp", mp, "When true, display higher precision for timestamps");
 
     app.add_flag("--nl", noLogs, "When true, ignore transaction log files for dirty hives");
+
+    app.add_flag("--vss", vss, "Read hive via Volume Shadow Copy (Windows only)");
+
+    app.add_flag("--raw", raw, "Read hive via raw volume/backup semantics (Windows only)");
 
     app.add_flag("--debug", debug, "Show debug information during processing");
 
@@ -137,6 +143,13 @@ int main(int argc, char** argv) {
     spdlog::info("Command line: {}", cmdLine);
     std::cout << std::endl;
 
+    if (vss || raw) {
+#ifndef _WIN32
+        spdlog::error("--vss and --raw are only supported on Windows");
+        return 1;
+#endif
+    }
+
     if (!amcache::RawCopy::IsAdministrator()) {
         spdlog::warn("Warning: Administrator privileges not found!");
         std::cout << std::endl;
@@ -179,25 +192,48 @@ int main(int argc, char** argv) {
     amcache::RegistryHive hive;
     bool opened = false;
 
-    try {
-        opened = hive.Open(filePath);
-    } catch (...) {
-        opened = false;
-    }
-
-    if (!opened) {
-        spdlog::info("'{}' is in use. Rerouting...", filePath);
+    if (vss) {
+#ifdef _WIN32
+        spdlog::info("Reading '{}' via Volume Shadow Copy...", filePath);
         std::cout << std::endl;
-
-        auto data = amcache::RawCopy::ReadLockedFile(filePath);
+        auto data = amcache::RawCopy::ReadViaVSS(filePath);
         if (data.has_value()) {
             opened = hive.OpenFromBuffer(*data);
         }
+#endif
+    } else if (raw) {
+#ifdef _WIN32
+        spdlog::info("Reading '{}' via raw volume access...", filePath);
+        std::cout << std::endl;
+        auto data = amcache::RawCopy::ReadViaNTFS(filePath);
+        if (!data.has_value()) {
+            data = amcache::RawCopy::ReadWithBackupPrivileges(filePath);
+        }
+        if (data.has_value()) {
+            opened = hive.OpenFromBuffer(*data);
+        }
+#endif
+    } else {
+        try {
+            opened = hive.Open(filePath);
+        } catch (...) {
+            opened = false;
+        }
 
         if (!opened) {
-            spdlog::error("{} not found or could not be accessed. Exiting", filePath);
-            return 1;
+            spdlog::info("'{}' is in use. Rerouting...", filePath);
+            std::cout << std::endl;
+
+            auto data = amcache::RawCopy::ReadLockedFile(filePath);
+            if (data.has_value()) {
+                opened = hive.OpenFromBuffer(*data);
+            }
         }
+    }
+
+    if (!opened) {
+        spdlog::error("{} not found or could not be accessed. Exiting", filePath);
+        return 1;
     }
 
     // Check for dirty hive
