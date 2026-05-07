@@ -58,6 +58,22 @@ std::optional<int32_t> HiveValue::GetInt32() const {
         std::memcpy(&value, data_.data(), 4);
         return value;
     }
+    // Fallback: many registry values store numbers as strings
+    if (type_ == RegValueType::REG_SZ || type_ == RegValueType::REG_EXPAND_SZ) {
+        auto str = GetString();
+        if (str.has_value() && !str->empty()) {
+            try {
+                size_t pos = 0;
+                if (str->length() > 2 && ((*str)[0] == '0') &&
+                    (((*str)[1] == 'x') || ((*str)[1] == 'X'))) {
+                    return static_cast<int32_t>(std::stoll(str->substr(2), &pos, 16));
+                }
+                return static_cast<int32_t>(std::stoll(*str, &pos, 10));
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+    }
     return std::nullopt;
 }
 
@@ -67,6 +83,21 @@ std::optional<uint32_t> HiveValue::GetUInt32() const {
         uint32_t value = 0;
         std::memcpy(&value, data_.data(), 4);
         return value;
+    }
+    if (type_ == RegValueType::REG_SZ || type_ == RegValueType::REG_EXPAND_SZ) {
+        auto str = GetString();
+        if (str.has_value() && !str->empty()) {
+            try {
+                size_t pos = 0;
+                if (str->length() > 2 && ((*str)[0] == '0') &&
+                    (((*str)[1] == 'x') || ((*str)[1] == 'X'))) {
+                    return static_cast<uint32_t>(std::stoull(str->substr(2), &pos, 16));
+                }
+                return static_cast<uint32_t>(std::stoull(*str, &pos, 10));
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
     }
     return std::nullopt;
 }
@@ -83,6 +114,21 @@ std::optional<int64_t> HiveValue::GetInt64() const {
         std::memcpy(&value, data_.data(), 4);
         return static_cast<int64_t>(value);
     }
+    if (type_ == RegValueType::REG_SZ || type_ == RegValueType::REG_EXPAND_SZ) {
+        auto str = GetString();
+        if (str.has_value() && !str->empty()) {
+            try {
+                size_t pos = 0;
+                if (str->length() > 2 && ((*str)[0] == '0') &&
+                    (((*str)[1] == 'x') || ((*str)[1] == 'X'))) {
+                    return std::stoll(str->substr(2), &pos, 16);
+                }
+                return std::stoll(*str, &pos, 10);
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
+    }
     return std::nullopt;
 }
 
@@ -97,6 +143,21 @@ std::optional<uint64_t> HiveValue::GetUInt64() const {
         uint32_t value = 0;
         std::memcpy(&value, data_.data(), 4);
         return static_cast<uint64_t>(value);
+    }
+    if (type_ == RegValueType::REG_SZ || type_ == RegValueType::REG_EXPAND_SZ) {
+        auto str = GetString();
+        if (str.has_value() && !str->empty()) {
+            try {
+                size_t pos = 0;
+                if (str->length() > 2 && ((*str)[0] == '0') &&
+                    (((*str)[1] == 'x') || ((*str)[1] == 'X'))) {
+                    return std::stoull(str->substr(2), &pos, 16);
+                }
+                return std::stoull(*str, &pos, 10);
+            } catch (...) {
+                return std::nullopt;
+            }
+        }
     }
     return std::nullopt;
 }
