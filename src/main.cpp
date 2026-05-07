@@ -188,9 +188,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Open hive
+    // Open hive (with optional VSS/raw/locked-file handling)
     amcache::RegistryHive hive;
+    hive.SetRecoverDeleted(true);
     bool opened = false;
+    std::vector<std::vector<uint8_t>> logBuffers;
 
     if (vss) {
 #ifdef _WIN32
@@ -224,9 +226,10 @@ int main(int argc, char** argv) {
             spdlog::info("'{}' is in use. Rerouting...", filePath);
             std::cout << std::endl;
 
-            auto data = amcache::RawCopy::ReadLockedFile(filePath);
+            auto data = amcache::RawCopy::ReadLockedFileWithLogs(filePath);
             if (data.has_value()) {
-                opened = hive.OpenFromBuffer(*data);
+                opened = hive.OpenFromBuffer(data->hiveData);
+                logBuffers = std::move(data->logData);
             }
         }
     }
@@ -236,15 +239,35 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Check for dirty hive
+    // Check for dirty hive and replay transaction logs
     if (hive.IsDirty()) {
         if (!noLogs) {
-            auto logFiles = amcache::Helper::FindTransactionLogs(filePath);
-            if (logFiles.empty()) {
+            // If we didn't get logs from locked-file reading, try reading them normally
+            if (logBuffers.empty()) {
+                auto logFiles = amcache::Helper::FindTransactionLogs(filePath);
+                for (const auto& logPath : logFiles) {
+                    std::ifstream file(logPath, std::ios::binary | std::ios::ate);
+                    if (file.is_open()) {
+                        std::streamsize size = file.tellg();
+                        file.seekg(0, std::ios::beg);
+                        std::vector<uint8_t> buffer(static_cast<size_t>(size));
+                        if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                            logBuffers.push_back(std::move(buffer));
+                        }
+                    }
+                }
+            }
+
+            if (logBuffers.empty()) {
                 spdlog::warn("Registry hive is dirty and no transaction logs were found in the same directory! LOGs should have same base name as the hive. Aborting!!");
                 return 1;
+            }
+
+            spdlog::info("Registry hive is dirty. Replaying transaction logs...");
+            if (hive.ReplayTransactionLogs(logBuffers)) {
+                spdlog::info("Transaction logs replayed successfully.");
             } else {
-                spdlog::warn("Registry hive is dirty. Transaction logs found but automatic replay is not implemented in this version. Data may be incomplete.");
+                spdlog::warn("Failed to replay transaction logs. Data may be incomplete.");
             }
         } else {
             spdlog::warn("Registry hive is dirty and transaction logs were found in the same directory, but --nl was provided. Data may be missing! Continuing anyways...");
@@ -399,7 +422,8 @@ int main(int argc, char** argv) {
 
         if (result.ProgramsEntries.empty() && result.UnassociatedFileEntries.empty()) {
             spdlog::warn("Hive did not contain program entries nor file entries. Exiting");
-            return 1;
+            std::cout << std::endl;
+            return 0;
         }
 
         // UnassociatedFileEntries

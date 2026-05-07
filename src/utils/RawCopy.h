@@ -7,9 +7,15 @@
 
 namespace amcache {
 
+struct LockedFileResult {
+    std::vector<uint8_t> hiveData;
+    std::vector<std::vector<uint8_t>> logData;
+};
+
 class RawCopy {
 public:
     static std::optional<std::vector<uint8_t>> ReadLockedFile(const std::string& path);
+    static std::optional<LockedFileResult> ReadLockedFileWithLogs(const std::string& path);
     static bool IsAdministrator();
     static bool IsFileLocked(const std::string& path);
     static bool CopyLockedFile(const std::string& sourcePath, const std::string& destPath);

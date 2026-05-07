@@ -10,6 +10,27 @@
 
 namespace amcache {
 
+static void TryReadLogs(const std::string& hivePath, std::vector<std::vector<uint8_t>>& logData) {
+    namespace fs = std::filesystem;
+    fs::path p(hivePath);
+    fs::path dir = p.parent_path();
+    if (dir.empty()) dir = ".";
+    std::string base = p.stem().string();
+
+    for (const auto& ext : {".LOG1", ".LOG2"}) {
+        fs::path logPath = dir / (base + ext);
+        std::ifstream file(logPath, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+            std::streamsize size = file.tellg();
+            file.seekg(0, std::ios::beg);
+            std::vector<uint8_t> buffer(static_cast<size_t>(size));
+            if (file.read(reinterpret_cast<char*>(buffer.data()), size)) {
+                logData.push_back(std::move(buffer));
+            }
+        }
+    }
+}
+
 std::optional<std::vector<uint8_t>> RawCopy::ReadLockedFile(const std::string& path) {
     {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
@@ -35,6 +56,56 @@ std::optional<std::vector<uint8_t>> RawCopy::ReadLockedFile(const std::string& p
 
     result = ReadViaNTFS(path);
     if (result.has_value()) {
+        return result;
+    }
+#endif
+
+    return std::nullopt;
+}
+
+std::optional<LockedFileResult> RawCopy::ReadLockedFileWithLogs(const std::string& path) {
+    LockedFileResult result;
+
+    // Try normal read for hive
+    {
+        std::ifstream file(path, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+            std::streamsize size = file.tellg();
+            file.seekg(0, std::ios::beg);
+            result.hiveData.resize(static_cast<size_t>(size));
+            if (file.read(reinterpret_cast<char*>(result.hiveData.data()), size)) {
+                // Try reading logs normally too
+                TryReadLogs(path, result.logData);
+                return result;
+            }
+        }
+    }
+
+#ifdef _WIN32
+    if (!IsAdministrator()) {
+        return std::nullopt;
+    }
+
+    auto vssResult = ReadViaVSS(path);
+    if (vssResult.has_value()) {
+        result.hiveData = std::move(*vssResult);
+        // For VSS, logs may not be accessible via the same snapshot path easily
+        // Try normal read first, then same VSS method
+        TryReadLogs(path, result.logData);
+        return result;
+    }
+
+    auto ntfsResult = ReadViaNTFS(path);
+    if (ntfsResult.has_value()) {
+        result.hiveData = std::move(*ntfsResult);
+        TryReadLogs(path, result.logData);
+        return result;
+    }
+
+    auto backupResult = ReadWithBackupPrivileges(path);
+    if (backupResult.has_value()) {
+        result.hiveData = std::move(*backupResult);
+        TryReadLogs(path, result.logData);
         return result;
     }
 #endif
