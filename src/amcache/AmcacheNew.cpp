@@ -1,6 +1,7 @@
 #include "AmcacheNew.h"
 #include "Helper.h"
 #include "../utils/DateTimeUtils.h"
+#include <spdlog/spdlog.h>
 #include <algorithm>
 
 namespace amcache {
@@ -76,8 +77,8 @@ std::vector<ProgramsEntryNew> AmcacheNew::ParsePrograms(const RegistryHive& hive
         try {
             auto entry = ParseProgramEntry(subkey);
             programs.push_back(std::move(entry));
-        } catch (...) {
-            // Skip malformed entries
+        } catch (const std::exception& e) {
+            spdlog::debug("Error parsing program entry '{}': {}", subkey.GetName(), e.what());
         }
     }
 
@@ -139,8 +140,8 @@ std::vector<FileEntryNew> AmcacheNew::ParseFiles(const RegistryHive& hive) {
         try {
             auto entry = ParseFileEntry(subkey);
             files.push_back(std::move(entry));
-        } catch (...) {
-            // Skip malformed entries
+        } catch (const std::exception& e) {
+            spdlog::debug("Error parsing file entry '{}': {}", subkey.GetName(), e.what());
         }
     }
 

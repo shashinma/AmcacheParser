@@ -94,10 +94,10 @@ int main(int argc, char** argv) {
 
     if (trace) {
         spdlog::set_level(spdlog::level::trace);
-        spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");
+        spdlog::set_pattern("[%H:%M:%S.%e %^%L%$] %v");
     } else if (debug) {
         spdlog::set_level(spdlog::level::debug);
-        spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");
+        spdlog::set_pattern("[%H:%M:%S.%e %^%L%$] %v");
     } else {
         spdlog::set_level(spdlog::level::info);
         spdlog::set_pattern("%v");
@@ -107,8 +107,29 @@ int main(int argc, char** argv) {
     std::string strftimeFormat = dateFormat;
     {
         size_t pos = 0;
+        // Longer patterns first to avoid partial replacements
+        while ((pos = strftimeFormat.find("dddd", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 4, "%A");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("ddd", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 3, "%a");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("MMMM", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 4, "%B");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("MMM", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 3, "%b");
+        }
+        pos = 0;
         while ((pos = strftimeFormat.find("yyyy", pos)) != std::string::npos) {
             strftimeFormat.replace(pos, 4, "%Y");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("yy", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 2, "%y");
         }
         pos = 0;
         while ((pos = strftimeFormat.find("MM", pos)) != std::string::npos) {
@@ -123,6 +144,10 @@ int main(int argc, char** argv) {
             strftimeFormat.replace(pos, 2, "%H");
         }
         pos = 0;
+        while ((pos = strftimeFormat.find("hh", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 2, "%I");
+        }
+        pos = 0;
         while ((pos = strftimeFormat.find("mm", pos)) != std::string::npos) {
             strftimeFormat.replace(pos, 2, "%M");
         }
@@ -131,8 +156,20 @@ int main(int argc, char** argv) {
             strftimeFormat.replace(pos, 2, "%S");
         }
         pos = 0;
+        while ((pos = strftimeFormat.find("tt", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 2, "%p");
+        }
+        pos = 0;
         while ((pos = strftimeFormat.find("fffffff", pos)) != std::string::npos) {
             strftimeFormat.replace(pos, 7, "");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("fff", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 3, "");
+        }
+        pos = 0;
+        while ((pos = strftimeFormat.find("K", pos)) != std::string::npos) {
+            strftimeFormat.replace(pos, 1, "%z");
         }
     }
 
@@ -275,9 +312,7 @@ int main(int argc, char** argv) {
                 }
 
                 if (logBuffers.empty()) {
-                    spdlog::warn("Registry hive is dirty and no transaction logs were found in the same directory! LOGs should have same base name as the hive. Aborting!!");
-                    std::cout << std::endl;
-                    return 1;
+                    throw std::runtime_error("Sequence numbers do not match and transaction logs were not found in the same directory as the hive. Aborting");
                 }
 
                 spdlog::info("Registry hive is dirty. Replaying transaction logs...");

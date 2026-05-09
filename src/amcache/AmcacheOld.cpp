@@ -1,6 +1,7 @@
 #include "AmcacheOld.h"
 #include "Helper.h"
 #include "../utils/DateTimeUtils.h"
+#include <spdlog/spdlog.h>
 #include <algorithm>
 
 namespace amcache {
@@ -52,8 +53,8 @@ std::vector<ProgramsEntryOld> AmcacheOld::ParsePrograms(const RegistryHive& hive
         try {
             auto entry = ParseProgramEntry(subkey);
             programs.push_back(std::move(entry));
-        } catch (...) {
-            // Skip malformed entries
+        } catch (const std::exception& e) {
+            spdlog::debug("Error parsing old program entry '{}': {}", subkey.GetName(), e.what());
         }
     }
 
@@ -130,8 +131,8 @@ std::vector<FileEntryOld> AmcacheOld::ParseFiles(const RegistryHive& hive) {
                 if (!entry.FullPath.empty()) {
                     files.push_back(std::move(entry));
                 }
-            } catch (...) {
-                // Skip malformed entries
+            } catch (const std::exception& e) {
+                spdlog::debug("Error parsing old file entry '{}': {}", fileKey.GetName(), e.what());
             }
         }
     }
